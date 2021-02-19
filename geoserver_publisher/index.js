@@ -47,12 +47,16 @@ async function publishRasters() {
     process.exit(1);
   }
 
-  framedMediumLogging('Checking CoverageStores for existance');
+  framedMediumLogging('Create CoverageStores if not existing');
 
-  // check if given CoverageStores exists and blacklist them if not
+  // check if given CoverageStores exists and create them if not
   await asyncForEach(unpublishedRasters, checkIfCoverageStoresExist);
 
-  framedMediumLogging('Publish rasters')
+  framedMediumLogging('Create time-enabled WMS layers if not existing');
+
+  await asyncForEach(unpublishedRasters, createRasterTimeLayers);
+
+  framedMediumLogging('Publish rasters');
 
   await asyncForEach(unpublishedRasters, async (rasterMetaInf) => {
     verboseLogging('Publish raster', rasterMetaInf.image_path);
@@ -66,7 +70,6 @@ async function publishRasters() {
       verboseLogging('-----------------------------------------------------\n');
     });
   });
-
 }
 
 /**
@@ -118,6 +121,40 @@ async function checkIfCoverageStoresExist(rasterMetaInf) {
     await grc.datastores.createImageMosaicStore(ws, covStore, zipPath);
 
     console.info('... CoverageStore', covStore, 'created');
+  }
+}
+
+/**
+ * Creates a time-enabled layer in the GeoServer for the given raster mosaic if
+ * not existing by GeoServer REST-API.
+ *
+ * @param {Object} rasterMetaInf
+ */
+async function createRasterTimeLayers (rasterMetaInf) {
+  const ws = rasterMetaInf.workspace;
+  const covStore = rasterMetaInf.coverage_store;
+  const srs = 'EPSG:3035'; //TODO check if defined in DB
+  // per convention coverage store name is layer name and layer title
+  const layerName = covStore;
+  const nativeName = rasterMetaInf.properties_path;
+  const layerTitle = covStore;
+
+  verboseLogging(`Checking existence for layer ${ws}:${layerName} in coverage store ${covStore} (native name: ${nativeName})`);
+
+  const layer = await grc.layers.get(covStore);
+
+  if (!layer) {
+    console.info(`Creating layer "${ws}:${layerName}" in store "${covStore}"`);
+    // publishDbRaster (workspace, coverageStore, nativeName, name, title, srs, enabled)
+    const layerCreated = await grc.layers.publishDbRaster(ws, covStore, nativeName, layerName, layerTitle, srs, true);
+    verboseLogging(`Layer "${ws}:${layerName}" created successfully?`, layerCreated);
+
+    console.info(`Enabling time for layer "${ws}:${layerName}"`);
+    const timeEnabled = await grc.layers.enableTimeCoverage(ws, covStore, layerName, 'DISCRETE_INTERVAL', 3600000, 'MAXIMUM');
+    verboseLogging(`Time dimension  for layer "${ws}:${layerName}" successfully enabled?`, timeEnabled);
+
+  } else {
+    verboseLogging(`Layer "${ws}:${layerName}" already existing - Skip.`);
   }
 }
 
