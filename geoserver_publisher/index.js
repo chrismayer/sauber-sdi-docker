@@ -151,7 +151,7 @@ async function createRasterTimeLayers (rasterMetaInf) {
 
     console.info(`Enabling time for layer "${ws}:${layerName}"`);
     const timeEnabled = await grc.layers.enableTimeCoverage(ws, covStore, layerName, 'DISCRETE_INTERVAL', 3600000, 'MAXIMUM');
-    verboseLogging(`Time dimension  for layer "${ws}:${layerName}" successfully enabled?`, timeEnabled);
+    verboseLogging(`Time dimension for layer "${ws}:${layerName}" successfully enabled?`, timeEnabled);
 
   } else {
     verboseLogging(`Layer "${ws}:${layerName}" already existing - Skip.`);
