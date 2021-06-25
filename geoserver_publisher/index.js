@@ -30,6 +30,9 @@ verboseLogging('GeoServer REST URL: ', geoserverUrl);
 verboseLogging('GeoServer REST User:', geoserverUser);
 verboseLogging('GeoServer REST PW:  ', geoserverPw);
 
+// database password
+const pgPassword = dockerSecret.read('app_password') || process.env.GSINIT_PG_PW;
+
 /**
  * Main process:
  *  - Queries all unpublished rasters from DB
@@ -42,7 +45,11 @@ async function publishRasters() {
   // Query all unpublished rasters from DB
   const unpublishedRasters = await getUnpublishedRasters();
   // exit if raster metadata could not be loaded
-  if (!unpublishedRasters) {
+  const noRasterUnpublished = !unpublishedRasters ||
+    (Array.isArray(unpublishedRasters) &&
+      unpublishedRasters.length === 0
+    );
+  if (noRasterUnpublished) {
     framedMediumLogging('Could not get raster metadata - ABORT!');
     process.exit(1);
   }
@@ -61,6 +68,7 @@ async function publishRasters() {
   await asyncForEach(unpublishedRasters, async (rasterMetaInf) => {
     verboseLogging('Publish raster', rasterMetaInf.image_path);
 
+    // TODO: remove ".then", because not needed in combination with "await"
     await addRasterToGeoServer(rasterMetaInf).then(async (success) => {
       if (success) {
         await markRastersPublished(rasterMetaInf);
@@ -76,7 +84,7 @@ async function publishRasters() {
  * Checks if GeoServer has the CoverageStore given in the raster meta info.
  * If not it is created in GeoServer by its REST-API.
  *
- * @param {Object} rasterMetaInf
+ * @param {Object} rasterMetaInf Properties about a raster
  */
 async function checkIfCoverageStoresExist(rasterMetaInf) {
   const ws = rasterMetaInf.workspace;
@@ -89,6 +97,10 @@ async function checkIfCoverageStoresExist(rasterMetaInf) {
   if (!covStoreObj) {
     console.info('CoverageStore', covStore, 'does not exist. Try to create it ...');
 
+    ////////////////////////////////
+    ///// indexer.properties ///////
+    ////////////////////////////////
+    // TODO: refactor process.cwd + dir
     const indexerFile = process.cwd() + '/gs-img-mosaic-tpl/indexer.properties.tpl';
     const indexerFileCopy = process.cwd() + '/gs-img-mosaic-tpl/indexer.properties';
     // copy indexer template so we can modify
@@ -105,6 +117,25 @@ async function checkIfCoverageStoresExist(rasterMetaInf) {
     // seth path to rasters in indexer.properties
     const indexingDirText = '\nIndexingDirectories=' + mosaicPath;
     fs.appendFileSync(indexerFileCopy, indexingDirText);
+
+    // TODO: access DB to set properties_path
+
+    ////////////////////////////////
+    ///// datastore.properties /////
+    ////////////////////////////////
+
+    const dataStoreTemplateFile = process.cwd() + '/gs-img-mosaic-tpl/datastore.properties.tpl';
+    const dataStoreFile = process.cwd() + '/gs-img-mosaic-tpl/datastore.properties';
+
+    // TODO: needs to be tested
+    console.log('... replacing dataStore file');
+    const readData = fs.readFileSync(dataStoreTemplateFile, 'utf8');
+    console.log({readData})
+
+    const adaptedContent = readData.replace(/__DATABASE_PASSWORD__/g, pgPassword);
+    console.log({adaptedContent})
+    fs.writeFileSync(dataStoreFile, adaptedContent);
+    console.log('... DONE Replacing datastore file');
 
     // zip image mosaic properties config files
     const fileToZip = [
